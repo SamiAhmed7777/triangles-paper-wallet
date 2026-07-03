@@ -93,27 +93,45 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ```
 
-A reproducible-build script is in [`scripts/reproduce.sh`](scripts/reproduce.sh).
-
-The binary will refuse to compile if any network symbol appears. The CI
-workflow `ci.yml` enforces this on every PR.
+The binary is fully reproducible under `SOURCE_DATE_EPOCH`: two independent
+cmake invocations produce byte-identical `triangles-mint-paper-wallet`.
 
 ---
 
-## Verify
+## Test
+
+```sh
+ctest --test-dir build --output-on-failure
+```
+
+Five suites run:
+
+| test             | purpose                                              |
+|------------------|------------------------------------------------------|
+| `paper_selftest` | 11 canonical crypto vectors (SHA-256, RIPEMD-160, HMAC-SHA-512, PBKDF2, Base58Check) |
+| `paper_bip32`    | BIP-32 spec vectors 1 + 2                            |
+| `paper_bip44_canonical` | First-address cross-check against Python `ecdsa` |
+| `paper_roundtrip`| BIP-39 `abandon`×11 + `about` seed → `TDrHzzu8…DDy`  |
+| `paper_e2e`      | 12-case production invariant suite (CSPRNG, checksum, all address well-formed, etc.) |
+
+---
+
+## Verify (airgap sanity)
 
 After building, **verify the binary has no network symbols**:
 
 ```sh
-nm build/triangles-mint-paper-wallet | grep -E 'T (socket|connect|gethostbyname|inet_pton)'
+nm -D --undefined-only build/src/triangles-mint-paper-wallet \
+  | grep -Ei 'socket|connect|gethostbyname|getaddrinfo|http_|tls_|ssl_'
 # (no output = pass)
 ```
 
-## License
+The CI workflow [`.github/workflows/offline-build.yml`](.github/workflows/offline-build.yml)
+runs this check + reproducibility + every test on every push to `main` and
+every PR. **A PR cannot merge if the airgap gate fires.**
 
-MIT. See [LICENSE](LICENSE).
+---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). PRs that touch the cryptographic
-core are merged only after a code review by two maintainers.
+PRs that touch the cryptographic core are merged only after a code review by two maintainers.

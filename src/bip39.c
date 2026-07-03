@@ -7,6 +7,8 @@
  *   3. Split the resulting bit string into 11-bit groups
  *   4. Map each group to a word in the BIP39 wordlist
  */
+#define _POSIX_C_SOURCE 200809L  /* for strtok_r */
+
 #include "bip39.h"
 #include "third_party_bip39_english.h"
 #include "entropy.h"
@@ -29,6 +31,82 @@ static int word_index(const char *word)
         else lo = mid + 1;
     }
     return -1;
+}
+
+/* Public — linear scan is fine for validation. Exposed via bip39.h. */
+int bip39_is_known_word(const char *word)
+{
+    if (!word || !word[0]) return 0;
+    return word_index(word) >= 0;
+}
+
+/* Public — return the n-th BIP39 word (0..2047). Exposed via bip39.h.
+ * Returns NULL on out-of-range. */
+const char *bip39_word(int n)
+{
+    if (n < 0 || n >= BIP39_WORDS) return NULL;
+    return BIP39_WORDLIST_EN[n];
+}
+
+/* Public — validate a 12- or 24-word mnemonic by checking the BIP39
+ * checksum bit. The last word encodes chk_bits of SHA-256(entropy);
+ * we recover the entropy bits (dropping the trailing chk_bits), hash
+ * them, and compare. */
+int bip39_validate_mnemonic(const char *mnemonic)
+{
+    if (!mnemonic || !mnemonic[0]) return 0;
+
+    /* Copy on stack because strtok modifies. */
+    char buf[256];
+    strncpy(buf, mnemonic, sizeof buf - 1);
+    buf[sizeof buf - 1] = '\0';
+
+    char *tokens[24];
+    int n = 0;
+    char *save = NULL;
+    for (char *p = strtok_r(buf, " ", &save); p && n < 24; p = strtok_r(NULL, " ", &save))
+        tokens[n++] = p;
+    if (n != 12 && n != 24) return 0;
+
+    /* Convert each word → 11-bit index. */
+    uint32_t idx[24];
+    for (int i = 0; i < n; i++) {
+        int k = word_index(tokens[i]);
+        if (k < 0) return 0;
+        idx[i] = (uint32_t)k;
+    }
+
+    int ent_bits  = (n == 12) ? 128 : 256;
+    int chk_bits  = ent_bits / 32;
+    int total_bits = ent_bits + chk_bits;
+    int ent_bytes  = ent_bits / 8;
+
+    /* Reconstruct bytes from bit stream. */
+    uint8_t bits[33] = {0};
+    for (int i = 0; i < n; i++) {
+        uint32_t v = idx[i];
+        /* Write 11 bits starting at bit position i*11. */
+        int bit_off = i * 11;
+        for (int b = 0; b < 11; b++) {
+            int bit = (v >> (10 - b)) & 1;
+            int abs = bit_off + b;
+            bits[abs / 8] |= (uint8_t)(bit << (7 - (abs % 8)));
+        }
+    }
+    /* Verify the trailing chk_bits match SHA-256(bits[0..ent_bytes]). */
+    uint8_t hash[32];
+    sha256(bits, ent_bytes, hash);
+
+    int ok = 1;
+    for (int i = 0; i < chk_bits; i++) {
+        int bit_expected = (hash[i / 8] >> (7 - (i % 8))) & 1;
+        int bit_actual   = (bits[ent_bytes + i / 8] >> (7 - (i % 8))) & 1;
+        if (bit_expected != bit_actual) { ok = 0; break; }
+    }
+    /* For an n-bit stream, only the first `total_bits` bits matter; ignore
+     * trailing zero bits in bits[ent_bytes]. */
+    (void)total_bits;
+    return ok ? 1 : 0;
 }
 
 int bip39_generate(int n_words, char *out, size_t out_len)

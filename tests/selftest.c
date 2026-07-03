@@ -23,7 +23,8 @@ static int hex_eq(const unsigned char *b, size_t n, const char *hex) {
 }
 static void show_buf(const char *l, const unsigned char *b, size_t n) {
     printf("    %s: ", l);
-    for (size_t i = 0; i < n; i++) printf("%02x", b[i]); printf("\n");
+    for (size_t i = 0; i < n; i++) printf("%02x", b[i]);
+    printf("\n");
 }
 static int total = 0, pass = 0;
 #define CHECK(label, got, n, expected) do { total++; \

@@ -1,0 +1,112 @@
+# triangles-paper-wallet — offline-build gate
+#
+# Builds the tool, runs every test, and enforces two security invariants
+# that are the entire reason this exists:
+#
+#   1. NO network symbols in the linked binary — the only acceptable
+#      network-touching library is openssl's crypto (used for SHA-512 +
+#      HMAC-SHA-512), and even that is optional in spirit. If anyone
+#      introduces a socket/connect/http call into the wallet path,
+#      this gate fires before the PR can be merged.
+#
+#   2. Reproducible builds — the produced binary SHA-256 must match
+#      across two independent cmake invocations using SOURCE_DATE_EPOCH.
+#      This catches non-determinism in build flags, debug info paths,
+#      or accidentally bundling `__FILE__` literals.
+#
+# All jobs run on ubuntu-latest with no network access required for
+# the test phase (everything is vendored under src/secp256k1/).
+#
+name: offline-build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: build, test, airgap-check, repro-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SOURCE_DATE_EPOCH: "1700000000"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libssl-dev
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test (ctest)
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Airgap sanity — no socket/connect/http symbols
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Scanning linked binary for forbidden network symbols…"
+          BIN="${{ github.workspace }}/build/src/triangles-mint-paper-wallet"
+          test -x "$BIN"
+          # Use nm on the binary; -D for dynamic symbols (where libc/open
+          # wins live), -u for undefined (which is what runtime needs).
+          BAD=$(nm -D --undefined-only "$BIN" 2>/dev/null | \
+                grep -Ei '^[ \t]+[Uu][ \t]+(socket|connect|gethostbyname|getaddrinfo|http_|ssl_|tls_)' || true)
+          if [ -n "$BAD" ]; then
+            echo "::error::Forbidden network symbol(s) referenced:"
+            echo "$BAD"
+            exit 1
+          fi
+          echo "✓ no network symbols in wallet binary"
+
+      - name: Reproducibility — build twice, hash must match
+        shell: bash
+        run: |
+          set -euo pipefail
+          BIN_A=/tmp/repro_a/triangles-mint-paper-wallet
+          BIN_B=/tmp/repro_b/triangles-mint-paper-wallet
+          cmake -S . -B /tmp/repro_a > /dev/null
+          cmake --build /tmp/repro_a > /dev/null
+          rm -rf /tmp/repro_b
+          cmake -S . -B /tmp/repro_b > /dev/null
+          cmake --build /tmp/repro_b > /dev/null
+          HASH_A=$(sha256sum "$BIN_A" | awk '{print $1}')
+          HASH_B=$(sha256sum "$BIN_B" | awk '{print $1}')
+          echo "build A: $HASH_A"
+          echo "build B: $HASH_B"
+          if [ "$HASH_A" != "$HASH_B" ]; then
+            echo "::error::Binary is not reproducible across builds."
+            exit 1
+          fi
+          echo "✓ reproducible: $HASH_A"
+
+      - name: Smoke — run wallet and verify an address prints
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "${{ github.workspace }}"
+          OUT=$(./build/src/triangles-mint-paper-wallet --bits 128 --addrs 3 --text /tmp/wallet.txt)
+          echo "$OUT"
+          # Extract the first address line. Address must be 34 chars
+          # and start with T (Triangles mainnet). -a treats the text
+          # file as ASCII (the wallet output uses em-dash which grep
+          # otherwise flags as binary).
+          ADDR=$(grep -aoE 'T[A-HJ-NP-Za-km-z1-9]{33}' /tmp/wallet.txt | head -1)
+          if [ -z "$ADDR" ]; then
+            echo "::error::No valid Triangles address produced."
+            exit 1
+          fi
+          echo "✓ produced valid Triangles address: $ADDR"

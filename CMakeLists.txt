@@ -5,6 +5,9 @@ set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# CTest drives our test executables.
+enable_testing()
+
 # ---------------------------------------------------------------------------
 # Reproducibility
 # ---------------------------------------------------------------------------
@@ -37,6 +40,7 @@ set(SECP256K1_ENABLE_MODULE_ECDH       ON  CACHE INTERNAL "")
 set(SECP256K1_ENABLE_MODULE_RECOVERY   ON  CACHE INTERNAL "")
 set(SECP256K1_ENABLE_MODULE_EXTRAKEYS  OFF CACHE INTERNAL "")
 set(SECP256K1_ENABLE_MODULE_SCHNORRSIG OFF CACHE INTERNAL "")
+set(SECP256K1_ENABLE_MODULE_MUSIG      OFF CACHE INTERNAL "")
 
 add_subdirectory(src/secp256k1 EXCLUDE_FROM_ALL)
 
@@ -44,3 +48,14 @@ add_subdirectory(src/secp256k1 EXCLUDE_FROM_ALL)
 # The CLI itself
 # ---------------------------------------------------------------------------
 add_subdirectory(src)
+add_subdirectory(tests)
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+message(STATUS "")
+message(STATUS "triangles-paper-wallet configured:")
+message(STATUS "  CLI          : src/triangles-mint-paper-wallet")
+message(STATUS "  Test suites  : selftest, bip32_selftest, bip44_canonical, roundtrip, e2e_test")
+message(STATUS "  Run all tests: ctest --test-dir build --output-on-failure")
+message(STATUS "")

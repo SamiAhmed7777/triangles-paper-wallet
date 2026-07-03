@@ -76,12 +76,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          BIN_A=/tmp/repro_a/triangles-mint-paper-wallet
-          BIN_B=/tmp/repro_b/triangles-mint-paper-wallet
-          cmake -S . -B /tmp/repro_a > /dev/null
+          BIN_A=/tmp/repro_a/src/triangles-mint-paper-wallet
+          BIN_B=/tmp/repro_b/src/triangles-mint-paper-wallet
+          cmake -S . -B /tmp/repro_a -DCMAKE_BUILD_TYPE=Release > /dev/null
           cmake --build /tmp/repro_a > /dev/null
           rm -rf /tmp/repro_b
-          cmake -S . -B /tmp/repro_b > /dev/null
+          cmake -S . -B /tmp/repro_b -DCMAKE_BUILD_TYPE=Release > /dev/null
           cmake --build /tmp/repro_b > /dev/null
           HASH_A=$(sha256sum "$BIN_A" | awk '{print $1}')
           HASH_B=$(sha256sum "$BIN_B" | awk '{print $1}')

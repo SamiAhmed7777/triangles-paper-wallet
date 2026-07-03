@@ -5,6 +5,7 @@
  * Falls back to /dev/urandom on systems that lack it (BSD, macOS, older Linux).
  * Closes the FD as soon as possible.
  */
+#define _POSIX_C_SOURCE 200809L
 #include "entropy.h"
 
 #include <errno.h>
